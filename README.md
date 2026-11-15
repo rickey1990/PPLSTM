@@ -17,8 +17,7 @@ I'm sharing the code and early results for independent testing and feedback. **T
 | `pplstm.py` | Standalone PyTorch PPLSTM cell, plus a tiny language-model example |
 | `test_pplstm.py` | Scan/serial agreement, gradients, causality, training-step smoke test |
 | `benchmark_gpu.ipynb` | Plain-PyTorch speed comparison against research sLSTM/mLSTM and Transformer baselines |
-| `PPLSTM_Proof_of_Concept.pdf` | Short introduction, equations and experimental results |
-| `PPLSTM_Code_Appendix.pdf` | Readable full code listing |
+| `PPLSTM_Proof_of_Concept.md` | Short introduction, equations and experimental results |
 | `results/` | Numeric results from the previous training and GPU tests |
 | `LICENSE` | GNU Affero General Public License version 3 |
 | `COMMERCIAL_LICENSING.md` | How to request a separate proprietary licence |
@@ -72,7 +71,7 @@ There is **no clear accuracy winner** between the recurrent cells. The conventio
 
 **GPU speed notebook:** A separate, *untrained*, two-layer test used a shared mLSTM block followed by either sLSTM or PPLSTM, alongside a two-layer Transformer. At batch 2 × sequence 1,024, the measured times were **1,200.31 ms** (mLSTM+sLSTM), **43.59 ms** (mLSTM+PPLSTM) and **10.50 ms** (Transformer). PPLSTM was **27.54× faster than that unoptimized, Python-loop sLSTM implementation**, but the Transformer was faster than PPLSTM. GPU model details beyond `cuda:0` were not included in the results supplied for this release.
 
-The GPU speed findings are **not** official optimized xLSTM comparisons. The 5M-text results did **not** train a combined mLSTM+PPLSTM stack. See the PDF and CSV files for all test sizes and caveats.
+The GPU speed findings are **not** official optimized xLSTM comparisons. The 5M-text results did **not** train a combined mLSTM+PPLSTM stack. See the proof-of-concept Markdown report and CSV files for all test sizes and caveats.
 
 ## What I want to test next
 
