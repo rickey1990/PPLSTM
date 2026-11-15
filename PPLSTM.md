@@ -1,5 +1,3 @@
-# PPLSTM — Proof of Concept
-
 **Parallel Permutation Long Short-Term Memory · Research prototype · November 2026**
 
 PPLSTM is an experimental alternative to the sequential **sLSTM** cell used in the xLSTM family. It is intended to make sLSTM-style gated memory computations parallel across tokens without giving up useful state-tracking behaviour. **This is a research goal, not an established equivalence to sLSTM.**
