@@ -1,0 +1,23 @@
+Code verification (CPU, 2026-11-15)
+
+Reference implementation:
+  Original GPU notebook PermutationPLSTM vs released PPLSTM,
+  identical weights and input: maximum output difference 0.0.
+
+Standalone tests (python test_pplstm.py):
+  Parallel matrix scan vs serial recurrence: PASS.
+  Autograd gradient comparison: PASS.
+  Future-token causality check: PASS.
+  Next-token training loss and backward pass: PASS.
+  Five extra widths/sequence lengths: PASS.
+
+Additional audit:
+  Forward comparison of scan vs serial across 5 widths (3, 6, 12,
+  36, 96) x 9 sequence lengths (1, 2, 3, 5, 9, 16, 17, 33, 64):
+  45/45 PASS (atol 1e-5).
+  Gradient comparison across 10 width/length cases: 10/10 PASS
+  (max absolute difference below 1e-5).
+
+These checks establish agreement between the parallel and serial forms of
+this proposed recurrence. They do not show equivalence to original sLSTM,
+prove competitive language modeling at scale, or measure GPU performance.

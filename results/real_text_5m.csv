@@ -1,0 +1,4 @@
+model,params,tokens_trained,cpu_train_s,train_tokens_per_s,validation_ppl_32,validation_top1_32,validation_nll_nats,test_ppl_32,test_top1_32,test_nll_nats
+transformer,37968,5000000,58.022,86173.5,56.77166,0.15799,4.03904,58.90328,0.17234,4.0759
+xlstm,35856,5000000,92.961,53786.2,53.51614,0.17548,3.97998,51.43058,0.18812,3.94023
+plstm,34956,5000000,148.334,33707.8,53.32292,0.17206,3.97637,54.50282,0.1826,3.99825

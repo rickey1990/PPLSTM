@@ -1,0 +1,1 @@
+PPLSTM is a research prototype exploring a parallel, permutation-mixed alternative to xLSTM's sequential sLSTM cell. PyTorch code, tests and early benchmarks.
