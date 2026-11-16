@@ -1,30 +1,52 @@
 # PPLSTM — Parallel Permutation Long Short-Term Memory
 
-**Research prototype, November 2026.**
+**Research prototype · November 2026**
 
-PPLSTM is an experimental way to make the **sLSTM part of an xLSTM-style model parallel across tokens**.
+PPLSTM is a parallel-scannable, three-channel permutation-mixed recurrent memory cell being investigated as a **practical alternative to the sequential sLSTM component in xLSTM-style models**. The aim is **comparable useful language and state-tracking capability with faster training**, not necessarily smaller models or superior accuracy.
 
-The original [xLSTM architecture](https://arxiv.org/abs/2405.04517) introduced two memory cells: **mLSTM**, with matrix memory that supports parallel sequence processing, and **sLSTM**, with scalar memory and recurrent hidden-state-dependent gates. An xLSTM stack can use either cell type or a combination of both. The standard sLSTM cell is harder to parallelize across time: its gates depend on the preceding hidden state, so it does not have the same straightforward input-only associative scan as mLSTM.
+**Important:** PPLSTM changes the sLSTM recurrence; it is **not mathematically equivalent to ordinary sLSTM**. The GPU implementations below keep the *PPLSTM* recurrence, not the sLSTM recurrence.
 
-**The idea behind PPLSTM:** replace that sequential sLSTM recurrence with a different gated memory update that mixes groups of three memory channels using learned permutation weights. These updates compose associatively and can be evaluated by a parallel prefix scan. The goal is to retain useful sLSTM-style state tracking while improving sequence parallelism, **not** to claim that the new equations are identical to conventional sLSTM or preserve all its capabilities.
+## Three implementations — same PPLSTM mathematics
 
-I'm sharing the code and early results for independent testing and feedback. **This is a research prototype, not a finished xLSTM replacement or a claim of state-of-the-art performance.**
+| Implementation | What changes? | Execution method | Where to look |
+|---|---|---|---|
+| **PPLSTM / PyTorch reference** | Original six-permutation, signed-carry cell; no accelerator-specific code | PyTorch prefix scans, eager execution | [`pplstm.py`](pplstm.py) · [proof of concept](reports/01_proof_of_concept.pdf) |
+| **PPLSTM + CUDA Graphs** | **No change to the cell equations or scan code** | Captures/replays the existing PyTorch forward and backward graph, reducing launch overhead | [Graph comparison PDF](reports/03_cuda_graph_benchmarks.pdf) · [Colab notebook](benchmarks/cuda_graphs_vs_vanilla_xlstm_colab.ipynb) |
+| **PPLSTM + fused T4 CUDA + Graphs** | **Same PPLSTM recurrence and trainable parameters**; replaces the memory scan, normalizer scan, output combination and their backward calculation with specialised CUDA code | Fused CUDA kernels **plus** CUDA Graph capture/replay | [10M equivalence PDF](reports/06_t4_fused_kernel_10m.pdf) · [CUDA source](kernels/t4/pplstm_fused_scan.cu) · [Kaggle notebook](benchmarks/10m_fused_equivalence_kaggle.ipynb) |
 
-## What is in this repository?
+**Terminology:** “PPLSTM + Graphs” is *not* the non-accelerated original. It is the original PyTorch PPLSTM **already running with CUDA Graphs**. The fused benchmark measures the additional speedup *on top of Graphs*. The mLSTM blocks remain mLSTM blocks in both hybrids.
 
-| File | Contents |
-|---|---|
-| `pplstm.py` | Standalone PyTorch PPLSTM cell, plus a tiny language-model example |
-| `test_pplstm.py` | Scan/serial agreement, gradients, causality, training-step smoke test |
-| `benchmark_gpu.ipynb` | Plain-PyTorch speed comparison against research sLSTM/mLSTM and Transformer baselines |
-| `PPLSTM_Proof_of_Concept.md` | Short introduction, equations and experimental results |
-| `results/` | Numeric results from the previous training and GPU tests |
-| `LICENSE` | GNU Affero General Public License version 3 |
-| `COMMERCIAL_LICENSING.md` | How to request a separate proprietary licence |
+## Key experiment results
 
-## Quick start
+These are **different studies** with different setups. Compare models **within the same row/study**.
 
-Requires Python 3.10+ and PyTorch. CPU works; CUDA is optional.
+| Study | Comparison and result | Important qualification |
+|---|---|---|
+| [5M-token proof of concept](reports/01_proof_of_concept.pdf) | Miniature PPLSTM test PPL **54.50** vs sLSTM **51.43**; similar quality | One-layer CPU text experiment, one seed |
+| [50M-token xLSTM replacement](reports/04_50m_vanilla_xlstm.pdf) | Hybrid PPLSTM **97.04** vs vanilla xLSTM **97.78** test PPL; **22,790** vs **2,187** training tok/s | Vanilla PyTorch sLSTM, **not** the official optimised sLSTM CUDA kernel; no Graphs |
+| [200M-token FineWeb-Edu](reports/05_200m_fineweb_vs_transformer.pdf) | mLSTM+PPLSTM+Graphs **87.83** vs Transformer SDPA **87.60** test PPL; **35,121** vs **263,885** tok/s | 529,880 vs 528,224 parameters; one seed; context 128 |
+| [10M-token fused-kernel verification](reports/06_t4_fused_kernel_10m.pdf) | PPLSTM+Graphs **34,628** vs fused PPLSTM+Graphs **111,031** training tok/s (**3.21×**); test PPL **132.52** vs **132.37** | Same hybrid architecture, data and parameter count, T4 FP32 prototype; one seed |
+
+The [CUDA Graph speed study](reports/03_cuda_graph_benchmarks.pdf) also reports a **2.20×–6.37×** throughput advantage over *vanilla PyTorch* sLSTM+Graphs across nine tested single-block configurations. These runs do **not** establish a speed advantage over the production optimised xLSTM CUDA kernels.
+
+## Numerical equivalence and scope
+
+- The PyTorch PPLSTM cell's **parallel and serial computations** agree on tested outputs and gradients.
+- The fused T4 implementation passed **20/20 recorded numerical/execution checks**. Same-weight full-model comparisons through training showed a largest reported logit difference of **1.24e-5** and overall relative gradient L2 difference of **5.18e-7**.
+- Fusion did **not** change PPLSTM's six permutations, signed gate, gate initialization or trainable parameter structure.
+- This supports **close numerical agreement and comparable training behaviour** on tested T4/FP32 workloads; it does **not** guarantee bitwise equality, identical long-run weight trajectories, or performance on every GPU.
+
+## Documentation and reproducibility
+
+- **[All reports and PDFs](docs/README.md)** — guide to six published reports.
+- **[Implementation differences](docs/implementations.md)** — reference, Graphs, fused kernel, and what was *not* changed.
+- **[Experiment evidence and limitations](docs/experiments.md)** — learning, memory tasks, speed, and comparisons.
+- **[How to reproduce](docs/reproducibility.md)** — data, hardware, notebooks and verification.
+- **[Runnable benchmarks](benchmarks/README.md)** — Colab/Kaggle notebooks with labels and scope.
+- **[T4 fused CUDA kernel](kernels/t4/README.md)** — source, integration and supported conditions.
+- **[Original standalone Python cell](pplstm.py)** / **[tests](test_pplstm.py)** / **[requirements](requirements.txt)**.
+
+### Quick start — reference cell
 
 ```bash
 pip install torch
@@ -32,64 +54,23 @@ python test_pplstm.py
 python pplstm.py
 ```
 
-Use the cell in an existing PyTorch model:
-
 ```python
 import torch
 from pplstm import PPLSTM
-
-cell = PPLSTM(width=36)          # width must be divisible by 3
-x = torch.randn(2, 128, 36)     # [batch, time, channels]
-y = cell(x)                     # [2, 128, 36]
+cell = PPLSTM(width=36)
+out = cell(torch.randn(2, 128, 36))
+print(out.shape)  # [2, 128, 36]
 ```
 
-For language-model logits, see `PPLSTMLanguageModel` in `pplstm.py`.
+The CUDA Graph and fused implementations are demonstrated in the notebooks and require a suitable CUDA environment. The FineWeb-Edu corpus is **not redistributed** in this repository.
 
-## The idea, briefly
+## Research status
 
-For each three-channel group, the model learns a soft mixture of all six possible permutations. It produces a 3×3 matrix `P_t` from the current and previous input features. With a signed carry gate `s_t`, stabilized forget/input gates `f_t, i_t`, and input candidate `z_t`, the memory update is
+**What is supported:** the proposed PPLSTM recurrence is scan-compatible; comparable small-model language performance has been measured; the T4 fused implementation substantially improved training throughput while closely matching the PyTorch reference numerically.
 
-```
-c_t = (f_t * P_t * diag(s_t)) @ c_(t-1) + i_t * z_t
-```
+**What remains open:** equivalence of *capabilities* to hidden-state-dependent sLSTM across diverse tasks; multi-seed scaling; fused-kernel correctness and robustness beyond tested GPU/dtypes/shapes; comparison against official optimised sLSTM kernels on compatible hardware. Synthetic-task results belong to the tested **combined mLSTM+PPLSTM models**, not automatically to isolated PPLSTM.
 
-This is `c_t = A_t c_(t-1) + b_t`. Affine maps compose associatively, so a parallel prefix scan calculates all states. The cell also retains a shared three-channel normalizer and numerical stabilizer (computed with additional prefix operations). The **underlying recurrence is changed**; this is not an exactly equivalent fast implementation of conventional sLSTM.
+This is experimental software. The original **AGPL-3.0-only** licence applies to PPLSTM project source; other dependencies may have their own licences. See [LICENSE](LICENSE) and [commercial licensing](COMMERCIAL_LICENSING.md).
 
-This implementation uses ordinary PyTorch tensor operations. There are **no custom CUDA/Triton kernels**, no CUDA Graphs and no `torch.compile`.
+Related work: [xLSTM paper](https://arxiv.org/abs/2405.04517) · [NX-AI/xlstm](https://github.com/NX-AI/xlstm).
 
-## What has been tested?
-
-**Five-million-token language-model trial:** Three *small, one-layer* models were trained on the same Wikipedia-derived token split. The counts are **5M token presentations per model** (900k distinct training tokens replayed); all trained on 32-token contexts with one random seed.
-
-| One-layer model | Validation perplexity | Test perplexity | CPU training tok/s |
-|---|---:|---:|---:|
-| Transformer | 56.77 | 58.90 | 86,174 |
-| sLSTM cell | 53.52 | **51.43** | 53,786 |
-| PPLSTM cell | **53.32** | 54.50 | 33,708 |
-
-There is **no clear accuracy winner** between the recurrent cells. The conventional sLSTM had a better *test* result, and the PPLSTM was slower at this very short CPU training context.
-
-**GPU speed notebook:** A separate, *untrained*, two-layer test used a shared mLSTM block followed by either sLSTM or PPLSTM, alongside a two-layer Transformer. At batch 2 × sequence 1,024, the measured times were **1,200.31 ms** (mLSTM+sLSTM), **43.59 ms** (mLSTM+PPLSTM) and **10.50 ms** (Transformer). PPLSTM was **27.54× faster than that unoptimized, Python-loop sLSTM implementation**, but the Transformer was faster than PPLSTM. GPU model details beyond `cuda:0` were not included in the results supplied for this release.
-
-The GPU speed findings are **not** official optimized xLSTM comparisons. The 5M-text results did **not** train a combined mLSTM+PPLSTM stack. See the proof-of-concept Markdown report and CSV files for all test sizes and caveats.
-
-## What I want to test next
-
-- Train the actual **xLSTM (mLSTM + PPLSTM)** and **xLSTM (mLSTM + sLSTM)** combinations on equal text, for several random seeds.
-- Test longer contexts and models larger than the tiny prototypes used so far.
-- Compare against optimized official xLSTM code, not just a Python timestep loop.
-- Measure whether the extra scan work and memory are worth it on different GPUs.
-
-Feedback, corrections and reproductions are welcome. Please share the hardware, PyTorch version and whether you changed the cell equations.
-
-## Licence and contact
-
-The source code is offered under **AGPL-3.0-only**. You can use, study, modify and redistribute it under those terms, including commercially. Modified covered code redistributed to others must generally remain under AGPL with corresponding source available; modified network-facing versions have additional source-access obligations under section 13. The licence is **not** a requirement to pay the author.
-
-A **separate commercial/proprietary licence** may be available if someone needs terms different from AGPL. Contact: **rickeyernest1990@gmail.com**. This is an offer to discuss alternative terms, not a commercial licence already granted.
-
-Please see `LICENSE` and `COMMERCIAL_LICENSING.md`. The implementation is experimental and provided without warranty. The sample Wikipedia dataset used in prior research is **not included** in this source-code release.
-
-**Project contact:** rickeyernest1990@gmail.com
-
-**Related work:** [xLSTM paper](https://arxiv.org/abs/2405.04517), [original xLSTM code](https://github.com/NX-AI/xlstm), and associative scans / parallel prefix computation.
